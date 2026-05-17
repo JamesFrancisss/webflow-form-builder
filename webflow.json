@@ -1,0 +1,13 @@
+{
+  "name": "native-form-builder",
+  "publicDir": "public",
+  "size": "default",
+  "apiVersion": "2",
+  "telemetry": {
+    "global": {
+      "allowTelemetry": true,
+      "lastPrompted": 1779032463397,
+      "version": "1.21.0"
+    }
+  }
+}
