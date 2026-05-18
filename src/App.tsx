@@ -12,45 +12,24 @@ import {
 
 declare const webflow: any
 
-// ─── Webflow style builder ────────────────────────────────────────────────────
-
+// ─── Get existing style or create new one — never update existing ────────────
 async function ensureStyle(name: string, props: Record<string, string>) {
-  try { const e = await webflow.getStyleByName(name); if (e) return e } catch {}
+  try {
+    const existing = await webflow.getStyleByName(name)
+    if (existing) return existing
+  } catch {}
   const style = await webflow.createStyle(name)
   await style.setProperties(props)
   return style
 }
 
+// ─── Build the form using native Webflow form presets ────────────────────────
 async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
   const selected = await webflow.getSelectedElement()
   if (!selected) throw new Error('Please select an element on the canvas first.')
 
   const t = formConfig.theme
-
-  // Create clean Webflow classes — one per element type
-  const fbForm = await ensureStyle('fb-form', {
-    'display': 'flex',
-    'flex-direction': 'column',
-    'row-gap': `${t.fieldGap}px`,
-    'width': '100%',
-    'background-color': t.formBgColor,
-    'border-radius': `${t.wrapperBorderRadius}px`,
-  })
-
-  const fbField = await ensureStyle('fb-field', {
-    'display': 'flex',
-    'flex-direction': 'column',
-    'row-gap': '6px',
-    'width': '100%',
-  })
-
-  const fbLabel = await ensureStyle('fb-label', {
-    'font-size': `${t.labelFontSize}px`,
-    'font-weight': t.labelFontWeight,
-    'color': t.labelColor,
-  })
-
-  const fbInput = await ensureStyle('fb-input', {
+  const inputProps = {
     'width': '100%',
     'padding': PADDING_VALUES[t.inputPadding],
     'font-size': `${t.inputFontSize}px`,
@@ -61,45 +40,66 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
     'background-color': t.inputBgColor,
     'color': t.inputTextColor,
     'outline': 'none',
-  })
+    'box-sizing': 'border-box',
+  }
 
+  const fbForm = await ensureStyle('fb-form', {
+    'display': 'flex', 'flex-direction': 'column',
+    'row-gap': `${t.fieldGap}px`, 'width': '100%',
+    'background-color': t.formBgColor,
+    'border-radius': `${t.wrapperBorderRadius}px`,
+    'padding': PADDING_VALUES[t.inputPadding],
+  })
+  const fbField = await ensureStyle('fb-field', {
+    'display': 'flex', 'flex-direction': 'column', 'row-gap': '6px', 'width': '100%',
+  })
+  const fbLabel = await ensureStyle('fb-label', {
+    'font-size': `${t.labelFontSize}px`,
+    'font-weight': t.labelFontWeight,
+    'color': t.labelColor,
+    'display': 'block', 'margin-bottom': '4px',
+  })
+  const fbInput = await ensureStyle('fb-input', inputProps)
+  const fbTextarea = await ensureStyle('fb-textarea', {
+    ...inputProps, 'min-height': '120px', 'resize': 'vertical',
+  })
   const fbSubmit = await ensureStyle('fb-submit', {
     'padding': BUTTON_PADDING_VALUES[t.buttonPadding],
-    'font-size': `${t.inputFontSize}px`,
-    'font-weight': '600',
-    'background-color': t.primaryColor,
-    'color': t.buttonTextColor,
-    'border-width': '0px',
-    'border-radius': `${t.buttonBorderRadius}px`,
-    'cursor': 'pointer',
-    'width': '100%',
+    'font-size': `${t.inputFontSize}px`, 'font-weight': '600',
+    'background-color': t.primaryColor, 'color': t.buttonTextColor,
+    'border-width': '0px', 'border-radius': `${t.buttonBorderRadius}px`,
+    'cursor': 'pointer', 'width': '100%',
+    'text-align': 'center', 'display': 'block',
   })
-
   const fbHelp = await ensureStyle('fb-help', {
-    'font-size': '12px',
-    'color': t.placeholderColor,
-    'margin-top': '4px',
+    'font-size': '12px', 'color': t.placeholderColor, 'margin-top': '4px',
   })
 
-  const fbError = await ensureStyle('fb-error', {
-    'font-size': '12px',
-    'color': '#ef4444',
-    'margin-top': '4px',
-    'display': 'none',
-  })
+  // Insert native Webflow Form Block — this gives us native form submission
+  const formWrapper = await selected.after(webflow.elementPresets.FormForm)
+  const wrapperChildren = await formWrapper.getChildren()
+  const formEl = wrapperChildren[0] // FormForm element
 
-  // Build form element tree
-  const formEl = webflow.elementBuilder(webflow.elementPresets.DOM)
-  formEl.setTag('form')
-  formEl.setAttribute('data-name', formConfig.formName)
-  formEl.setAttribute('method', 'get')
-  formEl.setStyles([fbForm])
-  if (formConfig.redirectUrl) formEl.setAttribute('data-redirect', formConfig.redirectUrl)
+  // Set form name and apply styles to wrapper
+  await formEl.setName(formConfig.formName)
+  await formWrapper.setStyles([fbForm])
+
+  // Remove Webflow's default fields, keep submit button
+  const defaultChildren = await formEl.getChildren()
+  const submitBtn = defaultChildren[defaultChildren.length - 1]
+  for (const child of defaultChildren.slice(0, -1)) {
+    await child.remove()
+  }
+
+  // Build our fields as DOM elements inside the native form
+  // Webflow's form handler reads name attributes on any input — native or DOM
+  const formBody = webflow.elementBuilder(webflow.elementPresets.DOM)
+  formBody.setTag('div')
+  formBody.setStyles([fbForm])
 
   for (const field of fields) {
-    const wrapper = formEl.append(webflow.elementPresets.DOM)
+    const wrapper = formBody.append(webflow.elementPresets.DOM)
     wrapper.setTag('div')
-    wrapper.setAttribute('data-fb-field', field.type)
     wrapper.setStyles([fbField])
 
     // Label
@@ -110,14 +110,14 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
       label.setStyles([fbLabel])
     }
 
-    // Input
+    // Input — full DOM control, all field types supported
     if (field.type === 'textarea') {
       const ta = wrapper.append(webflow.elementPresets.DOM)
       ta.setTag('textarea')
       ta.setAttribute('name', field.fieldName)
       ta.setAttribute('placeholder', field.placeholder)
       if (field.required) ta.setAttribute('required', 'true')
-      ta.setStyles([fbInput])
+      ta.setStyles([fbTextarea])
     } else if (field.type === 'select') {
       const sel = wrapper.append(webflow.elementPresets.DOM)
       sel.setTag('select')
@@ -150,7 +150,7 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
       input.setTag('input')
       input.setAttribute('type', field.type === 'toggle' ? 'checkbox' : field.type)
       input.setAttribute('name', field.fieldName)
-      if (field.placeholder) input.setAttribute('placeholder', field.placeholder)
+      input.setAttribute('placeholder', field.placeholder)
       if (field.required) input.setAttribute('required', 'true')
       if (field.defaultValue) input.setAttribute('value', field.defaultValue)
       input.setAttribute('inputmode', field.inputMode)
@@ -158,51 +158,22 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
       input.setStyles([fbInput])
     }
 
-    // Helper text
     if (field.helpText) {
       const help = wrapper.append(webflow.elementPresets.DOM)
       help.setTag('p')
       help.setTextContent(field.helpText)
       help.setStyles([fbHelp])
     }
-
-    // Validation message
-    if (field.required && field.validationMessage) {
-      const err = wrapper.append(webflow.elementPresets.DOM)
-      err.setTag('span')
-      err.setTextContent(field.validationMessage)
-      err.setAttribute('data-fb-error', field.fieldName)
-      err.setStyles([fbError])
-    }
   }
 
-  // Submit button
-  const submit = formEl.append(webflow.elementPresets.DOM)
-  submit.setTag('input')
-  submit.setAttribute('type', 'submit')
-  submit.setAttribute('value', formConfig.buttonLabel)
-  submit.setStyles([fbSubmit])
+  // Insert our DOM fields before the submit button
+  await submitBtn.before(formBody)
 
-  // Success / error states
-  const successDiv = formEl.append(webflow.elementPresets.DOM)
-  successDiv.setTag('div')
-  successDiv.setAttribute('data-form', 'done')
-  successDiv.setAttribute('style', 'display:none;')
-  const successP = successDiv.append(webflow.elementPresets.DOM)
-  successP.setTag('p')
-  successP.setTextContent(formConfig.successMessage)
-
-  const errorDiv = formEl.append(webflow.elementPresets.DOM)
-  errorDiv.setTag('div')
-  errorDiv.setAttribute('data-form', 'fail')
-  errorDiv.setAttribute('style', 'display:none;')
-  const errorP = errorDiv.append(webflow.elementPresets.DOM)
-  errorP.setTag('p')
-  errorP.setTextContent(formConfig.errorMessage)
-
-  if (selected.children) { await selected.append(formEl) } else { await selected.after(formEl) }
-  await webflow.setSelectedElement(formEl)
+  // Style the submit button
+  await submitBtn.setStyles([fbSubmit])
 }
+
+
 
 // ─── Templates ────────────────────────────────────────────────────────────────
 const TEMPLATES: { label: string; icon: string; fields: Partial<FieldConfig>[] }[] = [
@@ -243,37 +214,24 @@ const LivePreview: React.FC<{
   onSelect: (id: string) => void
 }> = ({ fields, formConfig, selectedId, onSelect }) => {
   const t = formConfig.theme
-
   const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: PADDING_VALUES[t.inputPadding],
-    fontSize: t.inputFontSize,
-    border: `1px solid ${t.inputBorderColor}`,
-    borderRadius: t.inputBorderRadius,
-    background: t.inputBgColor,
-    color: t.inputTextColor,
-    outline: 'none',
-    boxSizing: 'border-box',
-    fontFamily: 'inherit',
+    width: '100%', padding: PADDING_VALUES[t.inputPadding], fontSize: t.inputFontSize,
+    border: `1px solid ${t.inputBorderColor}`, borderRadius: t.inputBorderRadius,
+    background: t.inputBgColor, color: t.inputTextColor,
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
   }
-
   const labelStyle: React.CSSProperties = {
-    fontSize: t.labelFontSize,
-    fontWeight: t.labelFontWeight as any,
-    color: t.labelColor,
-    display: 'block',
-    marginBottom: 4,
+    fontSize: t.labelFontSize, fontWeight: t.labelFontWeight as any,
+    color: t.labelColor, display: 'block', marginBottom: 4,
   }
 
   return (
     <div className="preview-pane">
-      <div className="preview-label">
-        Preview <span className="preview-hint">Click a field to edit</span>
-      </div>
+      <div className="preview-label">Preview <span className="preview-hint">Click a field to edit</span></div>
       <div className="preview-scroll">
         <div className="preview-form" style={{
           gap: t.fieldGap,
-          background: t.formBgColor || 'transparent',
+          background: t.formBgColor || '#fff',
           borderRadius: t.wrapperBorderRadius,
         }}>
           {fields.length === 0 && <div className="preview-empty">Add fields to see a preview</div>}
@@ -283,12 +241,11 @@ const LivePreview: React.FC<{
               onClick={() => onSelect(field.id)}>
               {field.labelVariant !== 'hidden' && (
                 <label style={labelStyle}>
-                  {field.label}
-                  {field.required && <span style={{ color: '#ef4444' }}> *</span>}
+                  {field.label}{field.required && <span style={{ color: '#ef4444' }}> *</span>}
                 </label>
               )}
               {field.type === 'textarea' && (
-                <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+                <textarea style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
                   placeholder={field.placeholder} readOnly />
               )}
               {field.type === 'select' && (
@@ -320,24 +277,17 @@ const LivePreview: React.FC<{
                 <input style={inputStyle} type={field.type} placeholder={field.placeholder} readOnly />
               )}
               {field.helpText && (
-                <p style={{ fontSize: 12, color: t.placeholderColor, margin: '4px 0 0' }}>
-                  {field.helpText}
-                </p>
+                <p style={{ fontSize: 12, color: t.placeholderColor, margin: '4px 0 0' }}>{field.helpText}</p>
               )}
             </div>
           ))}
           {fields.length > 0 && (
             <button style={{
               padding: BUTTON_PADDING_VALUES[t.buttonPadding],
-              fontSize: t.inputFontSize,
-              fontWeight: 600,
-              background: t.primaryColor,
-              color: t.buttonTextColor,
-              border: 'none',
-              borderRadius: t.buttonBorderRadius,
-              cursor: 'default',
-              width: '100%',
-              fontFamily: 'inherit',
+              fontSize: t.inputFontSize, fontWeight: 600,
+              background: t.primaryColor, color: t.buttonTextColor,
+              border: 'none', borderRadius: t.buttonBorderRadius,
+              cursor: 'default', width: '100%', fontFamily: 'inherit',
             }}>{formConfig.buttonLabel}</button>
           )}
         </div>
@@ -390,21 +340,19 @@ const App: React.FC = () => {
   const selectedField = fields.find(f => f.id === selectedId) ?? null
   const hasFields = fields.length > 0
 
-  // ── Load saved theme silently on startup ───────────────────────────────────
+  // Load saved theme silently on startup
   useEffect(() => {
     const init = async () => {
       try {
         const info = await webflow.getSiteInfo()
         const saved = loadTheme(info.siteId)
-        if (saved) {
-          setFormConfig(prev => ({ ...prev, theme: saved }))
-        }
+        if (saved) setFormConfig(prev => ({ ...prev, theme: saved }))
       } catch {}
     }
     init()
   }, [])
 
-  // ── Auto-save theme whenever it changes ───────────────────────────────────
+  // Auto-save theme whenever it changes
   useEffect(() => {
     const save = async () => {
       try {
@@ -417,7 +365,7 @@ const App: React.FC = () => {
 
   useEffect(() => { setDrawerOpen(!!selectedId) }, [selectedId])
 
-  // ── Drag handlers ──────────────────────────────────────────────────────────
+  // Drag handlers
   const handleDragStart = (index: number) => { dragIndex.current = index }
   const handleDragOver = (index: number) => { setDragOverIndex(index) }
   const handleDrop = (dropIndex: number) => {
@@ -436,11 +384,17 @@ const App: React.FC = () => {
 
   const handleSelectField = (id: string) => { setSelectedId(id); setShowPresets(false) }
   const handleCloseDrawer = () => { setSelectedId(null); setDrawerOpen(false) }
-  const handleReset = () => { setFields([]); setSelectedId(null); setDrawerOpen(false); setStatus(null) }
+  const handleReset = () => {
+    setFields([]); setSelectedId(null)
+    setDrawerOpen(false); setStatus(null)
+    setPanel('fields')
+  }
 
   const addField = (presetIndex: number) => {
     const field = createField(FIELD_PRESETS[presetIndex].config)
-    setFields(prev => [...prev, field]); setSelectedId(field.id); setShowPresets(false)
+    setFields(prev => [...prev, field])
+    setSelectedId(field.id)
+    setShowPresets(false)
   }
 
   const updateField = useCallback((updated: FieldConfig) => {
@@ -480,6 +434,18 @@ const App: React.FC = () => {
     } finally { setBuilding(false) }
   }
 
+  const SplitWithPreview = ({ children }: { children: React.ReactNode }) => (
+    <div className="split-layout">
+      <div className="left-panel form-panel">
+        <div className="scroll-area">{children}</div>
+      </div>
+      <div className="right-panel">
+        <LivePreview fields={fields} formConfig={formConfig}
+          selectedId={null} onSelect={() => setPanel('fields')} />
+      </div>
+    </div>
+  )
+
   return (
     <div className="app">
       <div className="topbar">
@@ -503,27 +469,13 @@ const App: React.FC = () => {
 
       <div className="main">
         {panel === 'style' ? (
-          <div className="split-layout">
-            <div className="left-panel form-panel">
-              <div className="scroll-area">
-                <StyleSettings config={formConfig} onChange={setFormConfig} />
-              </div>
-            </div>
-            <div className="right-panel">
-              <LivePreview fields={fields} formConfig={formConfig} selectedId={null} onSelect={() => setPanel('fields')} />
-            </div>
-          </div>
+          <SplitWithPreview>
+            <StyleSettings config={formConfig} onChange={setFormConfig} />
+          </SplitWithPreview>
         ) : panel === 'form' ? (
-          <div className="split-layout">
-            <div className="left-panel form-panel">
-              <div className="scroll-area">
-                <FormSettings config={formConfig} onChange={setFormConfig} />
-              </div>
-            </div>
-            <div className="right-panel">
-              <LivePreview fields={fields} formConfig={formConfig} selectedId={null} onSelect={() => setPanel('fields')} />
-            </div>
-          </div>
+          <SplitWithPreview>
+            <FormSettings config={formConfig} onChange={setFormConfig} />
+          </SplitWithPreview>
         ) : !hasFields ? (
           <>
             <IntroScreen
@@ -581,13 +533,9 @@ const App: React.FC = () => {
                 ))}
               </div>
             </div>
-
             <div className="right-panel">
-              <LivePreview
-                fields={fields}
-                formConfig={formConfig}
-                selectedId={selectedId}
-                onSelect={handleSelectField} />
+              <LivePreview fields={fields} formConfig={formConfig}
+                selectedId={selectedId} onSelect={handleSelectField} />
               {drawerOpen && selectedField && (
                 <div className="drawer">
                   <div className="drawer-header">
