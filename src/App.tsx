@@ -46,9 +46,13 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
   const fbForm = await ensureStyle('fb-form', {
     'display': 'flex', 'flex-direction': 'column',
     'row-gap': `${t.fieldGap}px`, 'width': '100%',
+  })
+  // fb-wrapper styles the FormWrapper so padding applies to fields AND button
+  const fbWrapper = await ensureStyle('fb-wrapper', {
+    'padding': PADDING_VALUES[t.inputPadding],
     'background-color': t.formBgColor,
     'border-radius': `${t.wrapperBorderRadius}px`,
-    'padding': PADDING_VALUES[t.inputPadding],
+    'box-sizing': 'border-box',
   })
   const fbField = await ensureStyle('fb-field', {
     'display': 'flex', 'flex-direction': 'column', 'row-gap': '6px', 'width': '100%',
@@ -80,9 +84,13 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
   const wrapperChildren = await formWrapper.getChildren()
   const formEl = wrapperChildren[0] // FormForm element
 
-  // Set form name and apply styles to wrapper
-  await formEl.setName(formConfig.formName)
-  await formWrapper.setStyles([fbForm])
+  // Set form settings properly — this registers it in Webflow's Forms dashboard
+  await formEl.setSettings({
+    name: formConfig.formName,
+    method: 'post',
+    redirect: formConfig.redirectUrl || '',
+  })
+  await formWrapper.setStyles([fbWrapper])
 
   // Remove Webflow's default fields, keep submit button
   const defaultChildren = await formEl.getChildren()
@@ -166,11 +174,18 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
     }
   }
 
-  // Insert our DOM fields before the submit button
+  // Add a custom styled submit button inside our formBody
+  const submitWrapper = formBody.append(webflow.elementPresets.DOM)
+  submitWrapper.setTag('button')
+  submitWrapper.setAttribute('type', 'submit')
+  submitWrapper.setTextContent(formConfig.buttonLabel)
+  submitWrapper.setStyles([fbSubmit])
+
+  // Insert our formBody (fields + button) before the native submit button
   await submitBtn.before(formBody)
 
-  // Style the submit button
-  await submitBtn.setStyles([fbSubmit])
+  // Remove the native submit button since we have our own inside formBody
+  await submitBtn.remove()
 }
 
 

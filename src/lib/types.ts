@@ -166,7 +166,8 @@ export const createField = (preset: Partial<FieldConfig>): FieldConfig => {
 }
 
 export const createDefaultForm = (): FormConfig => ({
-  formName: 'Contact Form', redirectUrl: '',
+  formName: `Form ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+  redirectUrl: '',
   buttonLabel: 'Submit', submitMode: 'webflow', webhookUrl: '',
   successMessage: 'Thank you! Your submission has been received.',
   errorMessage: 'Something went wrong. Please try again.',

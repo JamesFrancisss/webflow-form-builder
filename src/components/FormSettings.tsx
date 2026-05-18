@@ -14,7 +14,7 @@ export const FormSettings: React.FC<Props> = ({ config, onChange }) => {
       <div className="prop-row">
         <div className="prop-label-wrap">
           <span className="prop-label">Form Name</span>
-          <span className="prop-hint">Shows in Webflow's Forms dashboard</span>
+          <span className="prop-hint">Must be unique — shows in Webflow's Forms dashboard</span>
         </div>
         <input className="prop-input" value={config.formName}
           onChange={e => set({ formName: e.target.value })} placeholder="Contact Form" />
