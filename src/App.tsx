@@ -4,15 +4,15 @@ import { FieldEditor } from './components/FieldEditor'
 import { FormSettings } from './components/FormSettings'
 import { StyleSettings } from './components/StyleSettings'
 import {
-  FIELD_PRESETS, createField, createDefaultForm,
-  FieldConfig, FormConfig, FormTheme,
+  FIELD_PRESETS, createField, createRow, createDefaultForm,
+  FieldConfig, FormItem, FormConfig,
   PADDING_VALUES, BUTTON_PADDING_VALUES,
-  saveTheme, loadTheme,
+  isRow, saveTheme, loadTheme, DropZone,
 } from './lib/types'
 
 declare const webflow: any
 
-// ─── Get existing style or create new one — never update existing ────────────
+// ─── Style helpers ────────────────────────────────────────────────────────────
 async function ensureStyle(name: string, props: Record<string, string>) {
   try {
     const existing = await webflow.getStyleByName(name)
@@ -23,8 +23,76 @@ async function ensureStyle(name: string, props: Record<string, string>) {
   return style
 }
 
-// ─── Build the form using native Webflow form presets ────────────────────────
-async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
+// ─── Build a single field into a parent builder element ───────────────────────
+function buildFieldEl(field: FieldConfig, parent: any, styles: Record<string, any>) {
+  const wrapper = parent.append(webflow.elementPresets.DOM)
+  wrapper.setTag('div')
+  wrapper.setStyles([styles.fbField])
+
+  if (field.labelVariant !== 'hidden') {
+    const label = wrapper.append(webflow.elementPresets.DOM)
+    label.setTag('label')
+    label.setTextContent(field.label + (field.required ? ' *' : ''))
+    label.setStyles([styles.fbLabel])
+  }
+
+  if (field.type === 'textarea') {
+    const ta = wrapper.append(webflow.elementPresets.DOM)
+    ta.setTag('textarea')
+    ta.setAttribute('name', field.fieldName)
+    ta.setAttribute('placeholder', field.placeholder)
+    if (field.required) ta.setAttribute('required', 'true')
+    ta.setStyles([styles.fbTextarea])
+  } else if (field.type === 'select') {
+    const sel = wrapper.append(webflow.elementPresets.DOM)
+    sel.setTag('select')
+    sel.setAttribute('name', field.fieldName)
+    if (field.required) sel.setAttribute('required', 'true')
+    sel.setStyles([styles.fbInput])
+    for (const o of field.options) {
+      const opt = sel.append(webflow.elementPresets.DOM)
+      opt.setTag('option')
+      opt.setAttribute('value', o.value)
+      opt.setTextContent(o.label)
+    }
+  } else if (field.type === 'checkbox' || field.type === 'radio') {
+    for (const o of field.options) {
+      const row = wrapper.append(webflow.elementPresets.DOM)
+      row.setTag('div')
+      row.setAttribute('style', 'display:flex;align-items:center;gap:8px;')
+      const inp = row.append(webflow.elementPresets.DOM)
+      inp.setTag('input')
+      inp.setAttribute('type', field.type)
+      inp.setAttribute('name', field.fieldName)
+      inp.setAttribute('value', o.value)
+      const lbl = row.append(webflow.elementPresets.DOM)
+      lbl.setTag('label')
+      lbl.setTextContent(o.label)
+      lbl.setStyles([styles.fbLabel])
+    }
+  } else if (field.type !== 'hidden') {
+    const input = wrapper.append(webflow.elementPresets.DOM)
+    input.setTag('input')
+    input.setAttribute('type', field.type === 'toggle' ? 'checkbox' : field.type)
+    input.setAttribute('name', field.fieldName)
+    input.setAttribute('placeholder', field.placeholder)
+    if (field.required) input.setAttribute('required', 'true')
+    if (field.defaultValue) input.setAttribute('value', field.defaultValue)
+    input.setAttribute('inputmode', field.inputMode)
+    input.setAttribute('autocomplete', field.autoComplete)
+    input.setStyles([styles.fbInput])
+  }
+
+  if (field.helpText) {
+    const help = wrapper.append(webflow.elementPresets.DOM)
+    help.setTag('p')
+    help.setTextContent(field.helpText)
+    help.setStyles([styles.fbHelp])
+  }
+}
+
+// ─── Build and insert form ────────────────────────────────────────────────────
+async function buildForm(items: FormItem[], formConfig: FormConfig) {
   const selected = await webflow.getSelectedElement()
   if (!selected) throw new Error('Please select an element on the canvas first.')
 
@@ -33,201 +101,169 @@ async function buildForm(fields: FieldConfig[], formConfig: FormConfig) {
     'width': '100%',
     'padding': PADDING_VALUES[t.inputPadding],
     'font-size': `${t.inputFontSize}px`,
-    'border-width': '1px',
-    'border-style': 'solid',
+    'border-width': '1px', 'border-style': 'solid',
     'border-color': t.inputBorderColor,
     'border-radius': `${t.inputBorderRadius}px`,
     'background-color': t.inputBgColor,
     'color': t.inputTextColor,
-    'outline': 'none',
-    'box-sizing': 'border-box',
+    'outline': 'none', 'box-sizing': 'border-box',
   }
 
-  const fbForm = await ensureStyle('fb-form', {
-    'display': 'flex', 'flex-direction': 'column',
-    'row-gap': `${t.fieldGap}px`, 'width': '100%',
-  })
-  // fb-wrapper styles the FormWrapper so padding applies to fields AND button
-  const fbWrapper = await ensureStyle('fb-wrapper', {
-    'padding': PADDING_VALUES[t.inputPadding],
-    'background-color': t.formBgColor,
-    'border-radius': `${t.wrapperBorderRadius}px`,
-    'box-sizing': 'border-box',
-  })
-  const fbField = await ensureStyle('fb-field', {
-    'display': 'flex', 'flex-direction': 'column', 'row-gap': '6px', 'width': '100%',
-  })
-  const fbLabel = await ensureStyle('fb-label', {
-    'font-size': `${t.labelFontSize}px`,
-    'font-weight': t.labelFontWeight,
-    'color': t.labelColor,
-    'display': 'block', 'margin-bottom': '4px',
-  })
-  const fbInput = await ensureStyle('fb-input', inputProps)
-  const fbTextarea = await ensureStyle('fb-textarea', {
-    ...inputProps, 'min-height': '120px', 'resize': 'vertical',
-  })
-  const fbSubmit = await ensureStyle('fb-submit', {
-    'padding': BUTTON_PADDING_VALUES[t.buttonPadding],
-    'font-size': `${t.inputFontSize}px`, 'font-weight': '600',
-    'background-color': t.primaryColor, 'color': t.buttonTextColor,
-    'border-width': '0px', 'border-radius': `${t.buttonBorderRadius}px`,
-    'cursor': 'pointer', 'width': '100%',
-    'text-align': 'center', 'display': 'block',
-  })
-  const fbHelp = await ensureStyle('fb-help', {
-    'font-size': '12px', 'color': t.placeholderColor, 'margin-top': '4px',
-  })
+  const fbField   = await ensureStyle('fb-field', { 'display': 'flex', 'flex-direction': 'column', 'row-gap': '6px', 'width': '100%' })
+  const fbColField = await ensureStyle('fb-col-field', { 'display': 'flex', 'flex-direction': 'column', 'row-gap': '6px', 'flex': '1', 'min-width': '0' })
+  const fbLabel   = await ensureStyle('fb-label', { 'font-size': `${t.labelFontSize}px`, 'font-weight': t.labelFontWeight, 'color': t.labelColor, 'display': 'block', 'margin-bottom': '4px' })
+  const fbInput   = await ensureStyle('fb-input', inputProps)
+  const fbTextarea = await ensureStyle('fb-textarea', { ...inputProps, 'min-height': '120px', 'resize': 'vertical' })
+  const fbSubmit  = await ensureStyle('fb-submit', { 'padding': BUTTON_PADDING_VALUES[t.buttonPadding], 'font-size': `${t.inputFontSize}px`, 'font-weight': '600', 'background-color': t.primaryColor, 'color': t.buttonTextColor, 'border-width': '0px', 'border-radius': `${t.buttonBorderRadius}px`, 'cursor': 'pointer', 'width': '100%', 'text-align': 'center', 'display': 'block' })
+  const fbHelp    = await ensureStyle('fb-help', { 'font-size': '12px', 'color': t.placeholderColor, 'margin-top': '4px' })
+  const fbRow     = await ensureStyle('fb-row', { 'display': 'flex', 'flex-direction': 'row', 'gap': `${t.columnGap}px`, 'width': '100%' })
+  const fbForm    = await ensureStyle('fb-form', { 'display': 'flex', 'flex-direction': 'column', 'row-gap': `${t.fieldGap}px`, 'width': '100%', 'padding': PADDING_VALUES[t.inputPadding], 'background-color': t.formBgColor, 'border-radius': `${t.wrapperBorderRadius}px`, 'box-sizing': 'border-box' })
+  const fbWrapper = await ensureStyle('fb-wrapper', { 'width': '100%' })
 
-  // Insert native Webflow Form Block — this gives us native form submission
+  const styles = { fbField, fbColField, fbLabel, fbInput, fbTextarea, fbSubmit, fbHelp, fbRow, fbForm }
+
+  // Insert native Webflow Form Block
   const formWrapper = await selected.after(webflow.elementPresets.FormForm)
   const wrapperChildren = await formWrapper.getChildren()
-  const formEl = wrapperChildren[0] // FormForm element
+  const formEl = wrapperChildren[0]
 
-  // Set form settings properly — this registers it in Webflow's Forms dashboard
-  await formEl.setSettings({
-    name: formConfig.formName,
-    method: 'post',
-    redirect: formConfig.redirectUrl || '',
-  })
+  await formEl.setSettings({ name: formConfig.formName, method: 'post', redirect: formConfig.redirectUrl || '' })
   await formWrapper.setStyles([fbWrapper])
 
-  // Remove Webflow's default fields, keep submit button
+  // Remove default Webflow fields, keep submit button
   const defaultChildren = await formEl.getChildren()
   const submitBtn = defaultChildren[defaultChildren.length - 1]
-  for (const child of defaultChildren.slice(0, -1)) {
-    await child.remove()
-  }
+  for (const child of defaultChildren.slice(0, -1)) await child.remove()
 
-  // Build our fields as DOM elements inside the native form
-  // Webflow's form handler reads name attributes on any input — native or DOM
+  // Build form body
   const formBody = webflow.elementBuilder(webflow.elementPresets.DOM)
   formBody.setTag('div')
   formBody.setStyles([fbForm])
 
-  for (const field of fields) {
-    const wrapper = formBody.append(webflow.elementPresets.DOM)
-    wrapper.setTag('div')
-    wrapper.setStyles([fbField])
-
-    // Label
-    if (field.labelVariant !== 'hidden') {
-      const label = wrapper.append(webflow.elementPresets.DOM)
-      label.setTag('label')
-      label.setTextContent(field.label + (field.required ? ' *' : ''))
-      label.setStyles([fbLabel])
-    }
-
-    // Input — full DOM control, all field types supported
-    if (field.type === 'textarea') {
-      const ta = wrapper.append(webflow.elementPresets.DOM)
-      ta.setTag('textarea')
-      ta.setAttribute('name', field.fieldName)
-      ta.setAttribute('placeholder', field.placeholder)
-      if (field.required) ta.setAttribute('required', 'true')
-      ta.setStyles([fbTextarea])
-    } else if (field.type === 'select') {
-      const sel = wrapper.append(webflow.elementPresets.DOM)
-      sel.setTag('select')
-      sel.setAttribute('name', field.fieldName)
-      if (field.required) sel.setAttribute('required', 'true')
-      sel.setStyles([fbInput])
-      for (const o of field.options) {
-        const opt = sel.append(webflow.elementPresets.DOM)
-        opt.setTag('option')
-        opt.setAttribute('value', o.value)
-        opt.setTextContent(o.label)
+  for (const item of items) {
+    if (isRow(item)) {
+      const rowEl = formBody.append(webflow.elementPresets.DOM)
+      rowEl.setTag('div')
+      rowEl.setStyles([fbRow])
+      for (const col of item.columns) {
+        const colWrapper = rowEl.append(webflow.elementPresets.DOM)
+        colWrapper.setTag('div')
+        colWrapper.setStyles([fbColField])
+        if (col.labelVariant !== 'hidden') {
+          const label = colWrapper.append(webflow.elementPresets.DOM)
+          label.setTag('label')
+          label.setTextContent(col.label + (col.required ? ' *' : ''))
+          label.setStyles([fbLabel])
+        }
+        // Input inside column
+        if (col.type === 'textarea') {
+          const ta = colWrapper.append(webflow.elementPresets.DOM)
+          ta.setTag('textarea'); ta.setAttribute('name', col.fieldName); ta.setAttribute('placeholder', col.placeholder)
+          if (col.required) ta.setAttribute('required', 'true'); ta.setStyles([fbTextarea])
+        } else if (col.type !== 'hidden' && col.type !== 'checkbox' && col.type !== 'radio') {
+          const input = colWrapper.append(webflow.elementPresets.DOM)
+          input.setTag('input'); input.setAttribute('type', col.type === 'toggle' ? 'checkbox' : col.type)
+          input.setAttribute('name', col.fieldName); input.setAttribute('placeholder', col.placeholder)
+          if (col.required) input.setAttribute('required', 'true')
+          input.setAttribute('inputmode', col.inputMode); input.setAttribute('autocomplete', col.autoComplete)
+          input.setStyles([fbInput])
+        }
+        if (col.helpText) {
+          const help = colWrapper.append(webflow.elementPresets.DOM)
+          help.setTag('p'); help.setTextContent(col.helpText); help.setStyles([fbHelp])
+        }
       }
-    } else if (field.type === 'checkbox' || field.type === 'radio') {
-      for (const o of field.options) {
-        const row = wrapper.append(webflow.elementPresets.DOM)
-        row.setTag('div')
-        row.setAttribute('style', 'display:flex;align-items:center;gap:8px;')
-        const inp = row.append(webflow.elementPresets.DOM)
-        inp.setTag('input')
-        inp.setAttribute('type', field.type)
-        inp.setAttribute('name', field.fieldName)
-        inp.setAttribute('value', o.value)
-        const lbl = row.append(webflow.elementPresets.DOM)
-        lbl.setTag('label')
-        lbl.setTextContent(o.label)
-        lbl.setStyles([fbLabel])
-      }
-    } else if (field.type !== 'hidden') {
-      const input = wrapper.append(webflow.elementPresets.DOM)
-      input.setTag('input')
-      input.setAttribute('type', field.type === 'toggle' ? 'checkbox' : field.type)
-      input.setAttribute('name', field.fieldName)
-      input.setAttribute('placeholder', field.placeholder)
-      if (field.required) input.setAttribute('required', 'true')
-      if (field.defaultValue) input.setAttribute('value', field.defaultValue)
-      input.setAttribute('inputmode', field.inputMode)
-      input.setAttribute('autocomplete', field.autoComplete)
-      input.setStyles([fbInput])
-    }
-
-    if (field.helpText) {
-      const help = wrapper.append(webflow.elementPresets.DOM)
-      help.setTag('p')
-      help.setTextContent(field.helpText)
-      help.setStyles([fbHelp])
+    } else {
+      buildFieldEl(item, formBody, styles)
     }
   }
 
-  // Add a custom styled submit button inside our formBody
-  const submitWrapper = formBody.append(webflow.elementPresets.DOM)
-  submitWrapper.setTag('button')
-  submitWrapper.setAttribute('type', 'submit')
-  submitWrapper.setTextContent(formConfig.buttonLabel)
-  submitWrapper.setStyles([fbSubmit])
+  // Submit button
+  const btn = formBody.append(webflow.elementPresets.DOM)
+  btn.setTag('button'); btn.setAttribute('type', 'submit')
+  btn.setTextContent(formConfig.buttonLabel); btn.setStyles([fbSubmit])
 
-  // Insert our formBody (fields + button) before the native submit button
   await submitBtn.before(formBody)
-
-  // Remove the native submit button since we have our own inside formBody
   await submitBtn.remove()
 }
 
-
-
 // ─── Templates ────────────────────────────────────────────────────────────────
-const TEMPLATES: { label: string; icon: string; fields: Partial<FieldConfig>[] }[] = [
+const TEMPLATES: { label: string; icon: string; items: FormItem[] }[] = [
   {
     label: 'Contact', icon: '✉️',
-    fields: [
-      { label: 'First Name', fieldName: 'first_name', placeholder: 'First name', type: 'text', autoComplete: 'given-name', inputMode: 'text' },
-      { label: 'Last Name', fieldName: 'last_name', placeholder: 'Last name', type: 'text', autoComplete: 'family-name', inputMode: 'text' },
-      { label: 'Email', fieldName: 'email', placeholder: 'you@example.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' },
-      { label: 'Message', fieldName: 'message', placeholder: 'Your message…', type: 'textarea', autoComplete: 'off', inputMode: 'text' },
+    items: [
+      createRow([
+        createField({ label: 'First Name', fieldName: 'first_name', placeholder: 'First name', type: 'text', autoComplete: 'given-name', inputMode: 'text' }),
+        createField({ label: 'Last Name', fieldName: 'last_name', placeholder: 'Last name', type: 'text', autoComplete: 'family-name', inputMode: 'text' }),
+      ]),
+      createField({ label: 'Email', fieldName: 'email', placeholder: 'you@example.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' }),
+      createField({ label: 'Message', fieldName: 'message', placeholder: 'Your message…', type: 'textarea', autoComplete: 'off', inputMode: 'text' }),
     ],
   },
   {
     label: 'Lead Gen', icon: '🎯',
-    fields: [
-      { label: 'Full Name', fieldName: 'full_name', placeholder: 'Your name', type: 'text', autoComplete: 'name', inputMode: 'text' },
-      { label: 'Work Email', fieldName: 'email', placeholder: 'you@company.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' },
-      { label: 'Company', fieldName: 'company', placeholder: 'Company name', type: 'text', autoComplete: 'organization', inputMode: 'text' },
-      { label: 'Phone', fieldName: 'phone', placeholder: '+44 7700 000000', type: 'tel', autoComplete: 'tel', inputMode: 'tel' },
+    items: [
+      createRow([
+        createField({ label: 'Full Name', fieldName: 'full_name', placeholder: 'Your name', type: 'text', autoComplete: 'name', inputMode: 'text' }),
+        createField({ label: 'Work Email', fieldName: 'email', placeholder: 'you@company.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' }),
+      ]),
+      createRow([
+        createField({ label: 'Company', fieldName: 'company', placeholder: 'Company name', type: 'text', autoComplete: 'organization', inputMode: 'text' }),
+        createField({ label: 'Phone', fieldName: 'phone', placeholder: '+44 7700 000000', type: 'tel', autoComplete: 'tel', inputMode: 'tel' }),
+      ]),
     ],
   },
   {
     label: 'Newsletter', icon: '📧',
-    fields: [
-      { label: 'First Name', fieldName: 'first_name', placeholder: 'First name', type: 'text', autoComplete: 'given-name', inputMode: 'text' },
-      { label: 'Email', fieldName: 'email', placeholder: 'you@example.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' },
+    items: [
+      createRow([
+        createField({ label: 'First Name', fieldName: 'first_name', placeholder: 'First name', type: 'text', autoComplete: 'given-name', inputMode: 'text' }),
+        createField({ label: 'Email', fieldName: 'email', placeholder: 'you@example.com', type: 'email', required: true, autoComplete: 'email', inputMode: 'email' }),
+      ]),
     ],
   },
 ]
 
 type Panel = 'fields' | 'style' | 'form'
 
+// ─── Preview Field ────────────────────────────────────────────────────────────
+const PreviewField: React.FC<{
+  field: FieldConfig; inputStyle: React.CSSProperties; labelStyle: React.CSSProperties
+  placeholderColor: string; isSelected: boolean; onSelect: () => void
+}> = ({ field, inputStyle, labelStyle, placeholderColor, isSelected, onSelect }) => (
+  <div className={`preview-field ${isSelected ? 'is-selected' : ''}`} onClick={onSelect} title="Click to edit">
+    {field.labelVariant !== 'hidden' && (
+      <label style={labelStyle}>{field.label}{field.required && <span style={{ color: '#ef4444' }}> *</span>}</label>
+    )}
+    {field.type === 'textarea' && <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} placeholder={field.placeholder} readOnly />}
+    {field.type === 'select' && (
+      <select style={{ ...inputStyle, appearance: 'auto' }}>
+        <option>{field.placeholder || 'Select…'}</option>
+        {field.options.map((o, i) => <option key={i}>{o.label}</option>)}
+      </select>
+    )}
+    {(field.type === 'checkbox' || field.type === 'radio') && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {field.options.map((o, i) => (
+          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 400 }}>
+            <input type={field.type} readOnly /> {o.label}
+          </label>
+        ))}
+      </div>
+    )}
+    {field.type === 'toggle' && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 400 }}><input type="checkbox" readOnly /> {field.label}</label>}
+    {field.type === 'hidden' && <div style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Hidden: <code>{field.fieldName}</code></div>}
+    {!['textarea','select','checkbox','radio','toggle','hidden'].includes(field.type) && (
+      <input style={inputStyle} type={field.type} placeholder={field.placeholder} readOnly />
+    )}
+    {field.helpText && <p style={{ fontSize: 12, color: placeholderColor, margin: '4px 0 0' }}>{field.helpText}</p>}
+  </div>
+)
+
 // ─── Live Preview ─────────────────────────────────────────────────────────────
 const LivePreview: React.FC<{
-  fields: FieldConfig[]
-  formConfig: FormConfig
-  selectedId: string | null
-  onSelect: (id: string) => void
-}> = ({ fields, formConfig, selectedId, onSelect }) => {
+  items: FormItem[]; formConfig: FormConfig; selectedId: string | null; onSelect: (id: string) => void
+}> = ({ items, formConfig, selectedId, onSelect }) => {
   const t = formConfig.theme
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: PADDING_VALUES[t.inputPadding], fontSize: t.inputFontSize,
@@ -239,71 +275,31 @@ const LivePreview: React.FC<{
     fontSize: t.labelFontSize, fontWeight: t.labelFontWeight as any,
     color: t.labelColor, display: 'block', marginBottom: 4,
   }
-
   return (
     <div className="preview-pane">
       <div className="preview-label">Preview <span className="preview-hint">Click a field to edit</span></div>
       <div className="preview-scroll">
-        <div className="preview-form" style={{
-          gap: t.fieldGap,
-          background: t.formBgColor || '#fff',
-          borderRadius: t.wrapperBorderRadius,
-        }}>
-          {fields.length === 0 && <div className="preview-empty">Add fields to see a preview</div>}
-          {fields.map(field => (
-            <div key={field.id}
-              className={`preview-field ${selectedId === field.id ? 'is-selected' : ''}`}
-              onClick={() => onSelect(field.id)}>
-              {field.labelVariant !== 'hidden' && (
-                <label style={labelStyle}>
-                  {field.label}{field.required && <span style={{ color: '#ef4444' }}> *</span>}
-                </label>
-              )}
-              {field.type === 'textarea' && (
-                <textarea style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
-                  placeholder={field.placeholder} readOnly />
-              )}
-              {field.type === 'select' && (
-                <select style={{ ...inputStyle, appearance: 'auto' }}>
-                  <option>{field.placeholder || 'Select…'}</option>
-                  {field.options.map((o, i) => <option key={i}>{o.label}</option>)}
-                </select>
-              )}
-              {(field.type === 'checkbox' || field.type === 'radio') && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {field.options.map((o, i) => (
-                    <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: t.inputTextColor, fontWeight: 400 }}>
-                      <input type={field.type} readOnly /> {o.label}
-                    </label>
-                  ))}
+        <div className="preview-form" style={{ gap: t.fieldGap, background: t.formBgColor || '#fff', borderRadius: t.wrapperBorderRadius, padding: PADDING_VALUES[t.inputPadding] }}>
+          {items.length === 0 && <div className="preview-empty">Add fields to see a preview</div>}
+          {items.map(item => isRow(item) ? (
+            <div key={item.id} style={{ display: 'flex', gap: t.columnGap, width: '100%' }}>
+              {item.columns.map(col => (
+                <div key={col.id} style={{ flex: 1, minWidth: 0 }}>
+                  <PreviewField field={col} inputStyle={inputStyle} labelStyle={labelStyle}
+                    placeholderColor={t.placeholderColor} isSelected={selectedId === col.id}
+                    onSelect={() => onSelect(col.id)} />
                 </div>
-              )}
-              {field.type === 'toggle' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: t.inputTextColor, fontWeight: 400 }}>
-                  <input type="checkbox" readOnly /> {field.label}
-                </label>
-              )}
-              {field.type === 'hidden' && (
-                <div style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic', padding: '4px 0' }}>
-                  Hidden field: <code>{field.fieldName}</code>
-                </div>
-              )}
-              {!['textarea', 'select', 'checkbox', 'radio', 'toggle', 'hidden'].includes(field.type) && (
-                <input style={inputStyle} type={field.type} placeholder={field.placeholder} readOnly />
-              )}
-              {field.helpText && (
-                <p style={{ fontSize: 12, color: t.placeholderColor, margin: '4px 0 0' }}>{field.helpText}</p>
-              )}
+              ))}
             </div>
+          ) : (
+            <PreviewField key={item.id} field={item} inputStyle={inputStyle} labelStyle={labelStyle}
+              placeholderColor={t.placeholderColor} isSelected={selectedId === item.id}
+              onSelect={() => onSelect(item.id)} />
           ))}
-          {fields.length > 0 && (
-            <button style={{
-              padding: BUTTON_PADDING_VALUES[t.buttonPadding],
-              fontSize: t.inputFontSize, fontWeight: 600,
-              background: t.primaryColor, color: t.buttonTextColor,
-              border: 'none', borderRadius: t.buttonBorderRadius,
-              cursor: 'default', width: '100%', fontFamily: 'inherit',
-            }}>{formConfig.buttonLabel}</button>
+          {items.length > 0 && (
+            <button style={{ padding: BUTTON_PADDING_VALUES[t.buttonPadding], fontSize: t.inputFontSize, fontWeight: 600, background: t.primaryColor, color: t.buttonTextColor, border: 'none', borderRadius: t.buttonBorderRadius, cursor: 'default', width: '100%', fontFamily: 'inherit' }}>
+              {formConfig.buttonLabel}
+            </button>
           )}
         </div>
       </div>
@@ -312,10 +308,7 @@ const LivePreview: React.FC<{
 }
 
 // ─── Intro Screen ─────────────────────────────────────────────────────────────
-const IntroScreen: React.FC<{
-  onTemplate: (f: FieldConfig[]) => void
-  onAddField: () => void
-}> = ({ onTemplate, onAddField }) => (
+const IntroScreen: React.FC<{ onTemplate: (items: FormItem[]) => void; onAddField: () => void }> = ({ onTemplate, onAddField }) => (
   <div className="intro-screen">
     <div className="intro-hero">
       <div className="intro-icon">⊞</div>
@@ -327,11 +320,10 @@ const IntroScreen: React.FC<{
       <div className="intro-templates-label">Or start with a template</div>
       <div className="intro-template-grid">
         {TEMPLATES.map((t, i) => (
-          <button key={i} className="template-btn"
-            onClick={() => onTemplate(t.fields.map(f => createField(f)))}>
+          <button key={i} className="template-btn" onClick={() => onTemplate(t.items)}>
             <span className="template-icon">{t.icon}</span>
             <span className="template-label">{t.label}</span>
-            <span className="template-count">{t.fields.length} fields</span>
+            <span className="template-count">{t.items.length} rows</span>
           </button>
         ))}
       </div>
@@ -341,108 +333,184 @@ const IntroScreen: React.FC<{
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 const App: React.FC = () => {
-  const [fields, setFields] = useState<FieldConfig[]>([])
+  const [items, setItems] = useState<FormItem[]>([])
   const [formConfig, setFormConfig] = useState<FormConfig>(createDefaultForm)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panel, setPanel] = useState<Panel>('fields')
   const [building, setBuilding] = useState(false)
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null)
   const [showPresets, setShowPresets] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [dropZone, setDropZone] = useState<DropZone>(null)
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const dragIndex = useRef<number | null>(null)
+  const dragFieldId = useRef<string | null>(null)
 
-  const selectedField = fields.find(f => f.id === selectedId) ?? null
-  const hasFields = fields.length > 0
+  const hasItems = items.length > 0
 
-  // Load saved theme silently on startup
+  // Find selected field across items and rows
+  const findSelected = (): FieldConfig | null => {
+    for (const item of items) {
+      if (!isRow(item) && item.id === selectedId) return item
+      if (isRow(item)) { const col = item.columns.find(c => c.id === selectedId); if (col) return col }
+    }
+    return null
+  }
+  const selectedField = findSelected()
+
   useEffect(() => {
     const init = async () => {
-      try {
-        const info = await webflow.getSiteInfo()
-        const saved = loadTheme(info.siteId)
-        if (saved) setFormConfig(prev => ({ ...prev, theme: saved }))
-      } catch {}
+      try { const info = await webflow.getSiteInfo(); const saved = loadTheme(info.siteId); if (saved) setFormConfig(prev => ({ ...prev, theme: saved })) } catch {}
     }
     init()
   }, [])
 
-  // Auto-save theme whenever it changes
   useEffect(() => {
     const save = async () => {
-      try {
-        const info = await webflow.getSiteInfo()
-        saveTheme(info.siteId, formConfig.theme)
-      } catch {}
+      try { const info = await webflow.getSiteInfo(); saveTheme(info.siteId, formConfig.theme) } catch {}
     }
     save()
   }, [formConfig.theme])
 
-  useEffect(() => { setDrawerOpen(!!selectedId) }, [selectedId])
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  const handleDragStart = (index: number, fieldId?: string) => {
+    dragIndex.current = index
+    dragFieldId.current = fieldId ?? null
+    setDraggedIndex(index)
+  }
+  const handleDragOver = (index: number, zone: DropZone) => {
+    setDragOverIndex(index)
+    setDropZone(zone)
+  }
+  const handleDragEnd = () => {
+    dragIndex.current = null; dragFieldId.current = null
+    setDragOverIndex(null); setDropZone(null); setDraggedIndex(null)
+  }
 
-  // Drag handlers
-  const handleDragStart = (index: number) => { dragIndex.current = index }
-  const handleDragOver = (index: number) => { setDragOverIndex(index) }
-  const handleDrop = (dropIndex: number) => {
+  const handleDrop = (dropIndex: number, zone: DropZone) => {
     const from = dragIndex.current
-    if (from === null || from === dropIndex) { dragIndex.current = null; setDragOverIndex(null); return }
-    setFields(prev => {
+    const fId = dragFieldId.current
+
+    setDragOverIndex(null); setDropZone(null); setDraggedIndex(null)
+
+    // Dragging a field OUT of a row
+    if (fId) {
+      setItems(prev => {
+        let extracted: FieldConfig | null = null
+        const next = prev.flatMap((item): FormItem[] => {
+          if (!isRow(item)) return [item]
+          const col = item.columns.find(c => c.id === fId)
+          if (!col) return [item]
+          extracted = col
+          const remaining = item.columns.filter(c => c.id !== fId)
+          if (remaining.length === 1) return [remaining[0]]
+          if (remaining.length === 0) return []
+          return [{ ...item, columns: remaining }]
+        })
+        if (extracted) {
+          const insertAt = zone === 'below' ? dropIndex + 1 : dropIndex
+          next.splice(insertAt, 0, extracted)
+        }
+        return next
+      })
+      dragFieldId.current = null; dragIndex.current = null
+      return
+    }
+
+    if (from === null) return
+
+    // Merge into row
+    if (zone === 'merge' && from !== dropIndex) {
+      setItems(prev => {
+        const next = [...prev]
+        const dragged = next[from]
+        const target = next[dropIndex < from ? dropIndex : dropIndex]
+        if (!isRow(dragged) && !isRow(target)) {
+          const fromFirst = from < dropIndex
+          const ordered = fromFirst ? [dragged, target] : [target, dragged]
+          // Remove both
+          const minIdx = Math.min(from, dropIndex)
+          const maxIdx = Math.max(from, dropIndex)
+          next.splice(maxIdx, 1)
+          next.splice(minIdx, 1)
+          const newRow = createRow(ordered as FieldConfig[])
+          next.splice(minIdx, 0, newRow)
+        }
+        return next
+      })
+      dragIndex.current = null
+      return
+    }
+
+    if (from === dropIndex) { dragIndex.current = null; return }
+
+    // Regular reorder — above or below
+    setItems(prev => {
       const next = [...prev]
       const [moved] = next.splice(from, 1)
-      next.splice(dropIndex, 0, moved)
+      const insertAt = zone === 'below'
+        ? (from < dropIndex ? dropIndex - 1 : dropIndex) + 1
+        : (from < dropIndex ? dropIndex - 1 : dropIndex)
+      next.splice(Math.max(0, insertAt), 0, moved)
       return next
     })
     dragIndex.current = null
-    setDragOverIndex(null)
   }
-  const handleDragEnd = () => { dragIndex.current = null; setDragOverIndex(null) }
 
   const handleSelectField = (id: string) => { setSelectedId(id); setShowPresets(false) }
-  const handleCloseDrawer = () => { setSelectedId(null); setDrawerOpen(false) }
-  const handleReset = () => {
-    setFields([]); setSelectedId(null)
-    setDrawerOpen(false); setStatus(null)
-    setPanel('fields')
-  }
+  const handleCloseDrawer = () => { setSelectedId(null) }
+  const handleReset = () => { setItems([]); setSelectedId(null); setStatus(null); setPanel('fields') }
 
   const addField = (presetIndex: number) => {
     const field = createField(FIELD_PRESETS[presetIndex].config)
-    setFields(prev => [...prev, field])
-    setSelectedId(field.id)
-    setShowPresets(false)
+    setItems(prev => [...prev, field]); setSelectedId(field.id); setShowPresets(false)
   }
 
   const updateField = useCallback((updated: FieldConfig) => {
-    setFields(prev => prev.map(f => f.id === updated.id ? updated : f))
+    setItems(prev => prev.map(item => {
+      if (!isRow(item) && item.id === updated.id) return updated
+      if (isRow(item)) return { ...item, columns: item.columns.map(c => c.id === updated.id ? updated : c) }
+      return item
+    }))
   }, [])
 
-  const duplicateField = (id: string) => {
-    const field = fields.find(f => f.id === id); if (!field) return
-    const dupe = createField({
-      ...JSON.parse(JSON.stringify(field)),
-      label: field.label + ' Copy',
-      fieldName: field.fieldName + '_copy',
-      id: undefined,
-    })
-    setFields(prev => {
-      const idx = prev.findIndex(f => f.id === id)
-      const next = [...prev]; next.splice(idx + 1, 0, dupe); return next
-    })
+  const duplicateItem = (id: string) => {
+    const idx = items.findIndex(item => !isRow(item) && item.id === id)
+    if (idx === -1) return
+    const field = items[idx] as FieldConfig
+    const dupe = createField({ ...JSON.parse(JSON.stringify(field)), id: undefined, label: field.label + ' Copy', fieldName: field.fieldName + '_copy' })
+    setItems(prev => { const next = [...prev]; next.splice(idx + 1, 0, dupe); return next })
     setSelectedId(dupe.id)
   }
 
-  const deleteField = (id: string) => {
-    setFields(prev => prev.filter(f => f.id !== id))
-    if (selectedId === id) { setSelectedId(null); setDrawerOpen(false) }
+  const deleteItem = (id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id))
+    if (selectedId === id) setSelectedId(null)
+  }
+
+  const reorderInRow = (rowId: string, fromIdx: number, toIdx: number) => {
+    setItems(prev => prev.map(item => {
+      if (!isRow(item) || item.id !== rowId) return item
+      const cols = [...item.columns]
+      const [moved] = cols.splice(fromIdx, 1)
+      cols.splice(toIdx, 0, moved)
+      return { ...item, columns: cols }
+    }))
+  }
+
+  const ungroupRow = (rowId: string) => {
+    setItems(prev => prev.flatMap((item): FormItem[] => {
+      if (!isRow(item) || item.id !== rowId) return [item]
+      return item.columns
+    }))
   }
 
   const handleBuild = async () => {
-    if (!hasFields) { setStatus({ ok: false, msg: 'Add at least one field first.' }); return }
+    if (!hasItems) { setStatus({ ok: false, msg: 'Add at least one field first.' }); return }
     setBuilding(true); setStatus(null)
     try {
-      const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out. Please try again.')), 15000))
-      await Promise.race([buildForm(fields, formConfig), timeout])
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out. Please try again.')), 15000))
+      await Promise.race([buildForm(items, formConfig), timeout])
       setStatus({ ok: true, msg: 'Form inserted onto canvas!' })
     } catch (err: any) {
       setStatus({ ok: false, msg: err.message ?? 'Failed to build form.' })
@@ -455,47 +523,39 @@ const App: React.FC = () => {
         <div className="scroll-area">{children}</div>
       </div>
       <div className="right-panel">
-        <LivePreview fields={fields} formConfig={formConfig}
-          selectedId={null} onSelect={() => setPanel('fields')} />
+        <LivePreview items={items} formConfig={formConfig} selectedId={null} onSelect={() => setPanel('fields')} />
       </div>
     </div>
   )
+
+  const showEditor = !!selectedField
 
   return (
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          {hasFields && <button className="btn-back" onClick={handleReset}>← Back</button>}
+          {hasItems && <button className="btn-back" onClick={handleReset}>← Back</button>}
           <span className="topbar-title">Form Builder</span>
         </div>
-        {hasFields && (
+        {hasItems && (
           <div className="topbar-tabs">
-            <button className={`topbar-tab ${panel === 'fields' ? 'active' : ''}`}
-              onClick={() => setPanel('fields')}>
-              Fields <span className="count-badge">{fields.length}</span>
+            <button className={`topbar-tab ${panel === 'fields' ? 'active' : ''}`} onClick={() => setPanel('fields')}>
+              Fields <span className="count-badge">{items.length}</span>
             </button>
-            <button className={`topbar-tab ${panel === 'style' ? 'active' : ''}`}
-              onClick={() => setPanel('style')}>Style</button>
-            <button className={`topbar-tab ${panel === 'form' ? 'active' : ''}`}
-              onClick={() => setPanel('form')}>Form</button>
+            <button className={`topbar-tab ${panel === 'style' ? 'active' : ''}`} onClick={() => setPanel('style')}>Style</button>
+            <button className={`topbar-tab ${panel === 'form' ? 'active' : ''}`} onClick={() => setPanel('form')}>Form</button>
           </div>
         )}
       </div>
 
       <div className="main">
         {panel === 'style' ? (
-          <SplitWithPreview>
-            <StyleSettings config={formConfig} onChange={setFormConfig} />
-          </SplitWithPreview>
+          <SplitWithPreview><StyleSettings config={formConfig} onChange={setFormConfig} /></SplitWithPreview>
         ) : panel === 'form' ? (
-          <SplitWithPreview>
-            <FormSettings config={formConfig} onChange={setFormConfig} />
-          </SplitWithPreview>
-        ) : !hasFields ? (
+          <SplitWithPreview><FormSettings config={formConfig} onChange={setFormConfig} /></SplitWithPreview>
+        ) : !hasItems ? (
           <>
-            <IntroScreen
-              onTemplate={f => { setFields(f); setSelectedId(null) }}
-              onAddField={() => setShowPresets(true)} />
+            <IntroScreen onTemplate={setItems} onAddField={() => setShowPresets(true)} />
             {showPresets && (
               <div className="floating-presets">
                 <div className="floating-presets-header">
@@ -514,7 +574,9 @@ const App: React.FC = () => {
             )}
           </>
         ) : (
-          <div className="split-layout">
+          /* ── 3-column layout ── */
+          <div className="three-col-layout">
+            {/* Col 1 — field list (fixed) */}
             <div className="left-panel">
               <div className="preset-section">
                 <button className="preset-toggle" onClick={() => setShowPresets(v => !v)}>
@@ -533,36 +595,47 @@ const App: React.FC = () => {
                 )}
               </div>
               <div className="field-list">
-                {fields.map((field, idx) => (
-                  <FieldCard key={field.id} field={field} index={idx}
-                    isSelected={selectedId === field.id}
-                    isFirst={idx === 0} isLast={idx === fields.length - 1}
-                    isDragOver={dragOverIndex === idx}
-                    onSelect={() => handleSelectField(field.id)}
-                    onDuplicate={() => duplicateField(field.id)}
-                    onDelete={() => deleteField(field.id)}
+                {items.map((item, idx) => (
+                  <FieldCard key={item.id} item={item} index={idx}
+                    isSelected={!isRow(item) && selectedId === item.id}
+                    dropZone={dragOverIndex === idx ? dropZone : null}
+                    isDragging={draggedIndex === idx}
+                    draggedItem={draggedIndex !== null ? items[draggedIndex] : null}
+                    selectedId={selectedId}
+                    onSelect={handleSelectField}
+                    onDuplicate={duplicateItem}
+                    onDelete={deleteItem}
                     onDragStart={handleDragStart}
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
-                    onDragEnd={handleDragEnd} />
+                    onDragEnd={handleDragEnd}
+                    onDropIntoRow={() => {}}
+                    onRemoveFromRow={() => {}}
+                    onReorderInRow={reorderInRow} />
                 ))}
               </div>
-            </div>
-            <div className="right-panel">
-              <LivePreview fields={fields} formConfig={formConfig}
-                selectedId={selectedId} onSelect={handleSelectField} />
-              {drawerOpen && selectedField && (
-                <div className="drawer">
-                  <div className="drawer-header">
-                    <span className="drawer-title">{selectedField.label}</span>
-                    <button className="drawer-close" onClick={handleCloseDrawer}>✕</button>
-                  </div>
-                  <div className="drawer-body">
-                    <FieldEditor field={selectedField} onChange={updateField} />
-                  </div>
-                </div>
+              {hasItems && (
+                <div className="row-hint">💡 Drag one field onto another to create a 2-column row</div>
               )}
             </div>
+
+            {/* Col 2 — preview (shrinks when editor open) */}
+            <div className={`middle-panel ${showEditor ? 'has-editor' : ''}`}>
+              <LivePreview items={items} formConfig={formConfig} selectedId={selectedId} onSelect={handleSelectField} />
+            </div>
+
+            {/* Col 3 — field editor (slides in when field selected) */}
+            {showEditor && selectedField && (
+              <div className="editor-panel">
+                <div className="editor-panel-header">
+                  <span className="editor-panel-title">{selectedField.label}</span>
+                  <button className="drawer-close" onClick={handleCloseDrawer}>✕</button>
+                </div>
+                <div className="scroll-area">
+                  <FieldEditor field={selectedField} onChange={updateField} />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -572,12 +645,11 @@ const App: React.FC = () => {
           {status.ok ? '✓' : '⚠'} {status.msg}
         </div>
       )}
-
       <div className="footer">
-        <button className="btn-build" onClick={handleBuild} disabled={building || !hasFields}>
+        <button className="btn-build" onClick={handleBuild} disabled={building || !hasItems}>
           {building ? 'Building…' : 'Insert Form → Canvas'}
         </button>
-        {!hasFields && <span className="footer-hint">Add fields to get started</span>}
+        {!hasItems && <span className="footer-hint">Add fields to get started</span>}
       </div>
     </div>
   )

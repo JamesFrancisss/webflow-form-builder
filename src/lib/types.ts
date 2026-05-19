@@ -1,3 +1,5 @@
+export type DropZone = 'above' | 'merge' | 'below' | null
+
 export type InputType =
   | 'text' | 'email' | 'tel' | 'number' | 'password' | 'url' | 'search'
   | 'textarea' | 'select' | 'checkbox' | 'radio' | 'toggle' | 'date' | 'hidden'
@@ -12,26 +14,22 @@ export type AutocompleteValue =
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 export interface FormTheme {
-  // Colours
-  primaryColor: string        // button background
-  inputBgColor: string        // input background
-  inputTextColor: string      // input text
-  inputBorderColor: string    // input border
-  labelColor: string          // label text
-  placeholderColor: string    // placeholder text
-  formBgColor: string         // form wrapper background
-  // Shape — all independent
-  inputBorderRadius: number   // px
-  buttonBorderRadius: number  // px
-  wrapperBorderRadius: number // px (form wrapper)
-  // Spacing
+  primaryColor: string
+  inputBgColor: string
+  inputTextColor: string
+  inputBorderColor: string
+  labelColor: string
+  placeholderColor: string
+  formBgColor: string
+  inputBorderRadius: number
+  buttonBorderRadius: number
+  wrapperBorderRadius: number
   inputPadding: PaddingSize
-  fieldGap: number            // gap between fields in px
-  // Typography
-  labelFontSize: number       // px
+  fieldGap: number
+  columnGap: number
+  labelFontSize: number
   labelFontWeight: '400' | '500' | '600' | '700'
-  inputFontSize: number       // px
-  // Button
+  inputFontSize: number
   buttonTextColor: string
   buttonPadding: PaddingSize
 }
@@ -49,6 +47,7 @@ export const DEFAULT_THEME: FormTheme = {
   wrapperBorderRadius: 0,
   inputPadding: 'md',
   fieldGap: 16,
+  columnGap: 16,
   labelFontSize: 14,
   labelFontWeight: '500',
   inputFontSize: 14,
@@ -85,6 +84,19 @@ export interface FieldConfig {
   labelVariant: LabelVariant
   options: { label: string; value: string }[]
 }
+
+// ─── Row (multi-column) ───────────────────────────────────────────────────────
+export interface FieldRow {
+  id: string
+  type: 'row'
+  columns: FieldConfig[]
+}
+
+// A form item is either a standalone field or a row of fields
+export type FormItem = FieldConfig | FieldRow
+
+export const isRow = (item: FormItem): item is FieldRow =>
+  (item as FieldRow).type === 'row'
 
 // ─── Form ─────────────────────────────────────────────────────────────────────
 export type SubmitMode = 'webflow' | 'webhook' | 'both'
@@ -153,6 +165,7 @@ export const FIELD_PRESETS: { label: string; icon: string; config: Partial<Field
 ]
 
 let _idCounter = 0
+
 export const createField = (preset: Partial<FieldConfig>): FieldConfig => {
   const { id: _ignored, ...rest } = preset as any
   return {
@@ -164,6 +177,12 @@ export const createField = (preset: Partial<FieldConfig>): FieldConfig => {
     ...rest,
   }
 }
+
+export const createRow = (fields: FieldConfig[]): FieldRow => ({
+  id: `row_${Date.now()}_${++_idCounter}`,
+  type: 'row',
+  columns: fields,
+})
 
 export const createDefaultForm = (): FormConfig => ({
   formName: `Form ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,

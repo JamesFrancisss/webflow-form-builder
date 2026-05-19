@@ -34,7 +34,7 @@ body { background: var(--s0); color: var(--t1); height: 100vh; overflow: hidden;
 .count-badge { font-size: 9px; background: var(--accent); color: #fff; border-radius: 8px; padding: 0 4px; font-weight: 700; line-height: 14px; }
 
 /* ── Main ──────────────────────────────────────────────────────────────── */
-.main { flex: 1; display: flex; overflow: hidden; position: relative; }
+.main { flex: 1; display: flex; flex-direction: row; overflow: hidden; position: relative; min-height: 0; }
 .scroll-area { flex: 1; overflow-y: auto; }
 .full-width { width: 100%; }
 
@@ -192,11 +192,15 @@ body { background: var(--s0); color: var(--t1); height: 100vh; overflow: hidden;
 /* ── Drag over indicator ───────────────────────────────────────────────── */
 .field-card.drag-over { border-color: var(--accent); border-top: 2px solid var(--accent); background: var(--accent-glow); }
 
-/* ── Drag over indicator (line) ────────────────────────────────────────── */
-.field-card.drag-over { border-color: transparent !important; background: transparent !important; }
-.field-card.drag-over::before { content: ''; display: block; position: absolute; left: 0; right: 0; top: -2px; height: 2px; background: var(--accent); border-radius: 2px; }
-.field-list { position: relative; }
+/* ── Drag over indicator (line between items) ──────────────────────────── */
 .field-card { position: relative; }
+.field-row-card { position: relative; }
+.field-list { position: relative; }
+.field-card.drag-over { border-color: transparent !important; background: var(--s2) !important; }
+.field-card.drag-over::before { content: ''; display: block; position: absolute; left: 4px; right: 4px; top: -3px; height: 2px; background: var(--accent); border-radius: 2px; z-index: 10; }
+.field-row-card.drag-over { border-color: transparent !important; }
+.field-row-card.drag-over::before { content: ''; display: block; position: absolute; left: 4px; right: 4px; top: -3px; height: 2px; background: var(--accent); border-radius: 2px; z-index: 10; }
+.field-card-col.drag-over-col { border-color: var(--accent) !important; background: var(--accent-glow) !important; }
 
 /* ── Preview form background fix ───────────────────────────────────────── */
 .preview-form { background: #fff; }
@@ -204,3 +208,46 @@ body { background: var(--s0); color: var(--t1); height: 100vh; overflow: hidden;
 
 /* ── Form panel (wider left panel for style editor) ────────────────────── */
 .left-panel.form-panel { width: 260px; min-width: 260px; }
+
+/* ── Row card ──────────────────────────────────────────────────────────── */
+.field-row-card { background: var(--s2); border: 1px solid var(--b1); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 2px; }
+.field-row-card.drag-over { border-color: var(--accent); border-top: 2px solid var(--accent); }
+.field-row-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--s3); border-bottom: 1px solid var(--b1); }
+.field-row-label { flex: 1; font-size: 10px; font-weight: 600; color: var(--t3); text-transform: uppercase; letter-spacing: 0.05em; }
+.field-row-columns { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 4px 16px; }
+.field-card-col { margin: 0; }
+
+/* ── Row hint ──────────────────────────────────────────────────────────── */
+.row-hint { padding: 8px 10px; font-size: 10px; color: var(--t4); border-top: 1px solid var(--b1); line-height: 1.4; }
+
+/* ── 3-column layout ───────────────────────────────────────────────────── */
+.three-col-layout { display: flex; flex-direction: row; width: 100%; height: 100%; overflow: hidden; flex: 1; }
+.middle-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; transition: flex 0.2s ease; min-width: 0; border-left: 1px solid var(--b1); }
+.editor-panel { width: 260px; min-width: 260px; display: flex; flex-direction: column; border-left: 1px solid var(--b1); overflow: hidden; flex-shrink: 0; }
+.editor-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; height: 38px; border-bottom: 1px solid var(--b1); flex-shrink: 0; background: var(--s2); }
+.editor-panel-title { font-size: 12px; font-weight: 600; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Ungroup button ────────────────────────────────────────────────────── */
+.btn-ungroup { background: none; border: 1px solid var(--b2); border-radius: 3px; color: var(--t3); font-size: 9px; padding: 2px 5px; font-family: inherit; cursor: pointer; }
+.btn-ungroup:hover { color: var(--t1); border-color: var(--b3); }
+
+/* ── Field card wrapper (for drop lines) ───────────────────────────────── */
+.field-card-wrapper { position: relative; display: flex; flex-direction: column; }
+
+/* ── Drop lines ────────────────────────────────────────────────────────── */
+.drop-line { height: 2px; background: var(--accent); border-radius: 2px; margin: 1px 4px; flex-shrink: 0; }
+.drop-line-above { order: -1; }
+.drop-line-below { order: 1; }
+
+/* ── Dragging state ────────────────────────────────────────────────────── */
+.field-card.is-dragging { opacity: 0.4; }
+.field-row-card.is-dragging { opacity: 0.4; }
+
+/* ── Merge target ──────────────────────────────────────────────────────── */
+.field-card.is-merge-target { border-color: var(--accent); background: var(--accent-glow); opacity: 0.5; }
+
+/* ── Ghost merge preview ───────────────────────────────────────────────── */
+.merge-preview { display: flex; gap: 4px; padding: 4px 4px 2px; background: var(--accent-glow); border: 1px dashed var(--accent); border-radius: var(--radius-sm); margin-bottom: 2px; opacity: 0.7; }
+.ghost-field { flex: 1; display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--s3); border-radius: var(--radius-sm); min-width: 0; }
+.ghost-icon { font-size: 11px; flex-shrink: 0; }
+.ghost-label { font-size: 10px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

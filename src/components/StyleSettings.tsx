@@ -105,6 +105,8 @@ export const StyleSettings: React.FC<Props> = ({ config, onChange }) => {
         leftLabel="Square" rightLabel="Rounded" onChange={v => ST({ wrapperBorderRadius: v })} />
       <SliderRow label="Field Gap" value={t.fieldGap} min={4} max={48}
         unit="px" onChange={v => ST({ fieldGap: v })} />
+      <SliderRow label="Column Gap" value={t.columnGap} min={4} max={48}
+        unit="px" onChange={v => ST({ columnGap: v })} />
       <SliderRow label="Input Font Size" value={t.inputFontSize} min={10} max={20}
         onChange={v => ST({ inputFontSize: v })} />
 
