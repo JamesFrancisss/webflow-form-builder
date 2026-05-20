@@ -1,13 +1,13 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { FieldConfig, FieldRow, FormItem, isRow, FIELD_PRESETS, DropZone } from '../lib/types'
 
 interface FieldCardProps {
   item: FormItem
   index: number
   isSelected: boolean
-  dropZone: DropZone          // what zone is being hovered
-  isDragging: boolean          // this card is being dragged
-  draggedItem: FormItem | null // what's being dragged (for ghost preview)
+  dropZone: DropZone
+  isDragging: boolean
+  draggedItem: FormItem | null
   selectedId: string | null
   onSelect: (id: string) => void
   onDelete: (id: string) => void
@@ -21,6 +21,12 @@ interface FieldCardProps {
   onRemoveFromRow: (rowId: string, fieldId: string) => void
 }
 
+const activeDrag = {
+  fieldId: null as string | null,
+  rowIdx: null as number | null,
+  colIdx: null as number | null,
+}
+
 const FieldIcon = ({ type }: { type: string }) => {
   const preset = FIELD_PRESETS.find(p => p.config.type === type)
   return <span className="field-card-icon">{preset?.icon ?? '📝'}</span>
@@ -28,14 +34,17 @@ const FieldIcon = ({ type }: { type: string }) => {
 
 const getDropZone = (e: React.DragEvent, el: HTMLElement): DropZone => {
   const rect = el.getBoundingClientRect()
-  const y = e.clientY - rect.top
-  const pct = y / rect.height
-  if (pct < 0.25) return 'above'
-  if (pct > 0.75) return 'below'
+  const pct = (e.clientY - rect.top) / rect.height
+  if (pct < 0.28) return 'above'
+  if (pct > 0.72) return 'below'
   return 'merge'
 }
 
-// Ghost preview of a field (dimmed, mini)
+const getHalfZone = (e: React.DragEvent, el: HTMLElement): 'above' | 'below' => {
+  const rect = el.getBoundingClientRect()
+  return (e.clientY - rect.top) < rect.height / 2 ? 'above' : 'below'
+}
+
 const GhostField: React.FC<{ field: FieldConfig }> = ({ field }) => {
   const preset = FIELD_PRESETS.find(p => p.config.type === field.type)
   return (
@@ -46,6 +55,10 @@ const GhostField: React.FC<{ field: FieldConfig }> = ({ field }) => {
   )
 }
 
+const MergeZoneOverlay: React.FC<{ active: boolean }> = ({ active }) => (
+  active ? <div className="merge-zone-overlay" /> : null
+)
+
 export const FieldCard: React.FC<FieldCardProps> = ({
   item, index, isSelected, dropZone, isDragging, draggedItem, selectedId,
   onSelect, onDelete, onDuplicate,
@@ -55,77 +68,71 @@ export const FieldCard: React.FC<FieldCardProps> = ({
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pendingMerge, setPendingMerge] = useState(false)
   const [colDragOver, setColDragOver] = useState<number | null>(null)
-  const colDragIdx = useRef<number | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
+  const insideRef = useRef(false)
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    if (!cardRef.current || isRow(item)) { onDragOver(index, 'above'); return }
-    const zone = getDropZone(e, cardRef.current)
+  useEffect(() => () => { if (mergeTimerRef.current) clearTimeout(mergeTimerRef.current) }, [])
 
-    if (zone === 'merge') {
-      if (!mergeTimerRef.current) {
-        mergeTimerRef.current = setTimeout(() => {
-          setPendingMerge(true)
-          onDragOver(index, 'merge')
-        }, 300)
-      }
-    } else {
-      if (mergeTimerRef.current) { clearTimeout(mergeTimerRef.current); mergeTimerRef.current = null }
-      setPendingMerge(false)
-      onDragOver(index, zone)
-    }
-  }, [index, item, onDragOver])
-
-  const handleDragLeave = useCallback(() => {
+  const clearMerge = () => {
     if (mergeTimerRef.current) { clearTimeout(mergeTimerRef.current); mergeTimerRef.current = null }
-    setPendingMerge(false)
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    if (mergeTimerRef.current) { clearTimeout(mergeTimerRef.current); mergeTimerRef.current = null }
-    setPendingMerge(false)
-    const zone = cardRef.current && !isRow(item) ? getDropZone(e, cardRef.current) : 'above'
-    onDrop(index, zone)
-  }, [index, item, onDrop])
-
-  // Determine visual state
-  const showLineAbove = dropZone === 'above'
-  const showLineBelow = dropZone === 'below'
-  const showMergePreview = dropZone === 'merge' && pendingMerge
-
-  // Get dragged field for ghost preview
-  const getDraggedField = (): FieldConfig | null => {
-    if (!draggedItem) return null
-    if (isRow(draggedItem)) return null
-    return draggedItem as FieldConfig
   }
-  const draggedField = getDraggedField()
-  const thisField = !isRow(item) ? item as FieldConfig : null
 
   if (!isRow(item)) {
+    const showAbove = dropZone === 'above'
+    const showBelow = dropZone === 'below'
+    const showMerge = dropZone === 'merge' && pendingMerge
+    const draggedField = (draggedItem && !isRow(draggedItem)) ? draggedItem as FieldConfig : null
+
     return (
       <div className="field-card-wrapper">
-        {showLineAbove && <div className="drop-line drop-line-above" />}
-
-        {/* Merge ghost preview */}
-        {showMergePreview && draggedField && thisField && (
+        {showAbove && <div className="drop-line drop-line-above" />}
+        {showMerge && draggedField && (
           <div className="merge-preview">
             <GhostField field={draggedField} />
-            <GhostField field={thisField} />
+            <div className="merge-preview-divider">+</div>
+            <GhostField field={item as FieldConfig} />
           </div>
         )}
-
         <div
           ref={cardRef}
-          className={`field-card ${isSelected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${showMergePreview ? 'is-merge-target' : ''}`}
+          className={['field-card', isSelected && 'is-selected', isDragging && 'is-dragging', showMerge && 'is-merge-target'].filter(Boolean).join(' ')}
           draggable
-          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(index)); onDragStart(index) }}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onDragEnd={onDragEnd}
+          onDragStart={e => {
+            e.dataTransfer.effectAllowed = 'move'
+            e.dataTransfer.setData('text/plain', String(index))
+            activeDrag.fieldId = null; activeDrag.rowIdx = null; activeDrag.colIdx = null
+            console.log('[DRAG] standalone start, index:', index)
+            onDragStart(index)
+          }}
+          onDragEnter={e => { e.preventDefault(); insideRef.current = true }}
+          onDragOver={e => {
+            e.preventDefault()
+            insideRef.current = true
+            if (!cardRef.current) return
+            const zone = getDropZone(e, cardRef.current)
+            if (zone === 'merge') {
+              if (!mergeTimerRef.current) {
+                mergeTimerRef.current = setTimeout(() => {
+                  if (insideRef.current) { setPendingMerge(true); onDragOver(index, 'merge') }
+                }, 300)
+              }
+            } else {
+              clearMerge(); setPendingMerge(false); onDragOver(index, zone)
+            }
+          }}
+          onDragLeave={e => {
+            if (cardRef.current && !cardRef.current.contains(e.relatedTarget as Node)) {
+              insideRef.current = false; clearMerge(); setPendingMerge(false)
+            }
+          }}
+          onDrop={e => {
+            e.preventDefault(); e.stopPropagation()
+            insideRef.current = false; clearMerge(); setPendingMerge(false)
+            const zone = cardRef.current ? getDropZone(e, cardRef.current) : 'above'
+            console.log('[DROP] on standalone card index:', index, 'zone:', zone, 'activeDrag.fieldId:', activeDrag.fieldId)
+            onDrop(index, zone)
+          }}
+          onDragEnd={() => { insideRef.current = false; clearMerge(); setPendingMerge(false); onDragEnd() }}
           onClick={() => onSelect(item.id)}
         >
           <span className="drag-handle">⠿</span>
@@ -140,26 +147,51 @@ export const FieldCard: React.FC<FieldCardProps> = ({
             <button title="Duplicate" onClick={e => { e.stopPropagation(); onDuplicate(item.id) }}>⧉</button>
             <button title="Remove" className="danger" onClick={e => { e.stopPropagation(); onDelete(item.id) }}>×</button>
           </div>
+          {dropZone === 'merge' && !isDragging && <MergeZoneOverlay active={true} />}
         </div>
-
-        {showLineBelow && <div className="drop-line drop-line-below" />}
+        {showBelow && <div className="drop-line drop-line-below" />}
       </div>
     )
   }
 
-  // Row card
   const row = item as FieldRow
+
   return (
     <div className="field-card-wrapper">
-      {showLineAbove && <div className="drop-line drop-line-above" />}
+      {dropZone === 'above' && <div className="drop-line drop-line-above" />}
       <div
         ref={cardRef}
-        className={`field-row-card ${dropZone === 'above' || dropZone === 'below' ? '' : ''} ${isDragging ? 'is-dragging' : ''}`}
+        className={`field-row-card ${isDragging ? 'is-dragging' : ''}`}
         draggable
-        onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(index)); onDragStart(index) }}
-        onDragOver={e => { e.preventDefault(); onDragOver(index, 'above') }}
-        onDrop={e => { e.preventDefault(); onDrop(index, 'above') }}
-        onDragEnd={e => { onDragEnd(); setColDragOver(null); colDragIdx.current = null }}
+        onDragStart={e => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', String(index))
+          activeDrag.fieldId = null; activeDrag.rowIdx = null; activeDrag.colIdx = null
+          console.log('[DRAG] row start, index:', index)
+          onDragStart(index)
+        }}
+        onDragEnter={e => e.preventDefault()}
+        onDragOver={e => {
+          e.preventDefault()
+          if (activeDrag.fieldId !== null) {
+            console.log('[DRAGOVER] row card skipping — column drag in progress, fieldId:', activeDrag.fieldId)
+            return
+          }
+          if (!cardRef.current) return
+          onDragOver(index, getHalfZone(e, cardRef.current))
+        }}
+        onDrop={e => {
+          e.preventDefault(); e.stopPropagation()
+          setColDragOver(null)
+          console.log('[DROP] on ROW card index:', index, 'activeDrag.fieldId:', activeDrag.fieldId)
+          if (!cardRef.current) { onDrop(index, 'above'); return }
+          onDrop(index, getHalfZone(e, cardRef.current))
+        }}
+        onDragEnd={() => {
+          console.log('[DRAGEND] row card')
+          activeDrag.fieldId = null; activeDrag.rowIdx = null; activeDrag.colIdx = null
+          setColDragOver(null); onDragEnd()
+        }}
       >
         <div className="field-row-header">
           <span className="drag-handle">⠿</span>
@@ -176,24 +208,41 @@ export const FieldCard: React.FC<FieldCardProps> = ({
                 e.stopPropagation()
                 e.dataTransfer.effectAllowed = 'move'
                 e.dataTransfer.setData('text/plain', col.id)
-                colDragIdx.current = colIdx
+                activeDrag.fieldId = col.id
+                activeDrag.rowIdx = index
+                activeDrag.colIdx = colIdx
+                console.log('[DRAG] column start, col.id:', col.id, 'rowIdx:', index, 'colIdx:', colIdx)
                 onDragStart(index, col.id)
               }}
-              onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColDragOver(colIdx) }}
+              onDragOver={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (activeDrag.fieldId && activeDrag.rowIdx === index) {
+                  setColDragOver(colIdx)
+                }
+              }}
               onDrop={e => {
                 e.preventDefault(); e.stopPropagation()
-                const from = colDragIdx.current
-                if (from !== null && from !== colIdx) {
-                  onReorderInRow(row.id, from, colIdx)
-                } else {
-                  onDrop(index, 'above')
+                const fromCol = activeDrag.colIdx
+                const wasInsideThisRow = activeDrag.rowIdx === index && activeDrag.fieldId !== null
+                console.log('[DROP] on COLUMN colIdx:', colIdx, 'fromCol:', fromCol, 'wasInsideThisRow:', wasInsideThisRow)
+                activeDrag.fieldId = null; activeDrag.rowIdx = null; activeDrag.colIdx = null
+                setColDragOver(null)
+                if (wasInsideThisRow && fromCol !== null && fromCol !== colIdx) {
+                  onReorderInRow(row.id, fromCol, colIdx)
+                } else if (!wasInsideThisRow) {
+                  const zone = cardRef.current ? getHalfZone(e, cardRef.current) : 'above'
+                  onDrop(index, zone)
                 }
-                setColDragOver(null); colDragIdx.current = null
               }}
-              onDragEnd={() => { setColDragOver(null); colDragIdx.current = null; onDragEnd() }}
+              onDragEnd={() => {
+                console.log('[DRAGEND] column colIdx:', colIdx, 'activeDrag.fieldId was:', activeDrag.fieldId)
+                activeDrag.fieldId = null; activeDrag.rowIdx = null; activeDrag.colIdx = null
+                setColDragOver(null); onDragEnd()
+              }}
               onClick={e => { e.stopPropagation(); onSelect(col.id) }}
             >
-              <span className="drag-handle" title="Drag to reorder">⠿</span>
+              <span className="drag-handle">⠿</span>
               <FieldIcon type={col.type} />
               <div className="field-card-meta">
                 <span className="field-card-label">{col.label}</span>
@@ -203,7 +252,7 @@ export const FieldCard: React.FC<FieldCardProps> = ({
           ))}
         </div>
       </div>
-      {showLineBelow && <div className="drop-line drop-line-below" />}
+      {dropZone === 'below' && <div className="drop-line drop-line-below" />}
     </div>
   )
 }

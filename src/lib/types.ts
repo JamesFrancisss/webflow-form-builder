@@ -6,6 +6,8 @@ export type InputType =
 
 export type LabelVariant = 'visible' | 'hidden' | 'floating'
 export type PaddingSize = 'sm' | 'md' | 'lg'
+export type DateMode = 'single' | 'range'
+export type DateFormat = 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
 
 export type AutocompleteValue =
   | 'off' | 'name' | 'given-name' | 'family-name' | 'email' | 'tel'
@@ -83,6 +85,9 @@ export interface FieldConfig {
   cssClasses: string
   labelVariant: LabelVariant
   options: { label: string; value: string }[]
+  // Date-specific
+  dateMode?: DateMode
+  dateFormat?: DateFormat
 }
 
 // ─── Row (multi-column) ───────────────────────────────────────────────────────
@@ -123,6 +128,12 @@ export const INPUT_TYPE_OPTIONS: { label: string; value: InputType }[] = [
   { label: 'Date', value: 'date' }, { label: 'Hidden', value: 'hidden' },
 ]
 
+export const DATE_FORMAT_OPTIONS: { label: string; value: DateFormat }[] = [
+  { label: 'DD/MM/YYYY', value: 'DD/MM/YYYY' },
+  { label: 'MM/DD/YYYY', value: 'MM/DD/YYYY' },
+  { label: 'YYYY-MM-DD', value: 'YYYY-MM-DD' },
+]
+
 export const AUTOCOMPLETE_OPTIONS: { label: string; value: AutocompleteValue }[] = [
   { label: 'Off', value: 'off' }, { label: 'Full Name', value: 'name' },
   { label: 'First Name', value: 'given-name' }, { label: 'Last Name', value: 'family-name' },
@@ -156,7 +167,7 @@ export const FIELD_PRESETS: { label: string; icon: string; config: Partial<Field
   { label: 'Message', icon: '💬', config: { label: 'Message', fieldName: 'message', placeholder: 'Your message…', type: 'textarea', autoComplete: 'off', inputMode: 'text' } },
   { label: 'Company', icon: '🏢', config: { label: 'Company', fieldName: 'company', placeholder: 'Company name', type: 'text', autoComplete: 'organization', inputMode: 'text' } },
   { label: 'Website', icon: '🌐', config: { label: 'Website', fieldName: 'website', placeholder: 'https://', type: 'url', autoComplete: 'off', inputMode: 'url' } },
-  { label: 'Date', icon: '📅', config: { label: 'Date', fieldName: 'date', placeholder: '', type: 'date', autoComplete: 'off', inputMode: 'text' } },
+  { label: 'Date', icon: '📅', config: { label: 'Date', fieldName: 'date', placeholder: '', type: 'date', autoComplete: 'off', inputMode: 'text', dateMode: 'single', dateFormat: 'DD/MM/YYYY' } },
   { label: 'Dropdown', icon: '▾', config: { label: 'Option', fieldName: 'option', placeholder: 'Select…', type: 'select', autoComplete: 'off', inputMode: 'text', options: [{ label: 'Option 1', value: 'option_1' }, { label: 'Option 2', value: 'option_2' }] } },
   { label: 'Checkbox', icon: '☑', config: { label: 'I agree', fieldName: 'agree', placeholder: '', type: 'checkbox', autoComplete: 'off', inputMode: 'text', options: [{ label: 'I agree to the terms', value: 'agree' }] } },
   { label: 'Radio', icon: '◉', config: { label: 'Choose one', fieldName: 'choice', placeholder: '', type: 'radio', autoComplete: 'off', inputMode: 'text', options: [{ label: 'Option A', value: 'a' }, { label: 'Option B', value: 'b' }] } },
@@ -174,6 +185,8 @@ export const createField = (preset: Partial<FieldConfig>): FieldConfig => {
     validationMessage: '', required: false, defaultValue: '', type: 'text',
     inputMode: 'text', autoComplete: 'off', cssClasses: '', labelVariant: 'visible',
     options: [],
+    dateMode: 'single',
+    dateFormat: 'DD/MM/YYYY',
     ...rest,
   }
 }
@@ -204,4 +217,11 @@ export const loadTheme = (siteId: string): FormTheme | null => {
     if (!raw) return null
     return { ...DEFAULT_THEME, ...JSON.parse(raw) }
   } catch { return null }
+}
+
+// ─── Template field descriptors ───────────────────────────────────────────────
+export const TEMPLATE_FIELD_DESCRIPTIONS: Record<string, string[]> = {
+  'Contact': ['First Name + Last Name (row)', 'Email (required)', 'Message (textarea)'],
+  'Lead Gen': ['Full Name + Work Email (row)', 'Company + Phone (row)'],
+  'Newsletter': ['First Name + Email (row)'],
 }

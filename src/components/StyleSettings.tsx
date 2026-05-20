@@ -1,10 +1,17 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { FormConfig, FormTheme, PaddingSize } from '../lib/types'
 
 interface Props { config: FormConfig; onChange: (c: FormConfig) => void }
 
 const setTheme = (config: FormConfig, onChange: (c: FormConfig) => void) =>
   (p: Partial<FormTheme>) => onChange({ ...config, theme: { ...config.theme, ...p } })
+
+// Prevent the browser from scrolling the panel when an input/slider gets focus.
+// Without this, clicking a slider that's partially off-screen causes the scroll
+// container to jump so the element is centred — fighting the user's scroll position.
+const noScrollFocus = (e: React.FocusEvent<HTMLElement>) => {
+  e.target.focus({ preventScroll: true })
+}
 
 const ColorRow: React.FC<{
   label: string; hint?: string; value: string; onChange: (v: string) => void
@@ -16,8 +23,10 @@ const ColorRow: React.FC<{
     </div>
     <div className="color-row">
       <input type="color" className="color-swatch" value={value}
+        onFocus={noScrollFocus}
         onChange={e => onChange(e.target.value)} />
       <input className="prop-input prop-input-mono" value={value} maxLength={7}
+        onFocus={noScrollFocus}
         onChange={e => { if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) onChange(e.target.value) }} />
     </div>
   </div>
@@ -32,8 +41,14 @@ const SliderRow: React.FC<{
       <span className="prop-label">{label}</span>
       <span className="prop-hint">{value}{unit}</span>
     </div>
-    <input type="range" className="prop-slider" min={min} max={max} step={1}
-      value={value} onChange={e => onChange(Number(e.target.value))} />
+    <input
+      type="range"
+      className="prop-slider"
+      min={min} max={max} step={1}
+      value={value}
+      onFocus={noScrollFocus}
+      onChange={e => onChange(Number(e.target.value))}
+    />
     {(leftLabel || rightLabel) && (
       <div className="slider-labels"><span>{leftLabel}</span><span>{rightLabel}</span></div>
     )}
@@ -48,6 +63,7 @@ const PaddingRow: React.FC<{
     <div className="segment-control">
       {(['sm', 'md', 'lg'] as PaddingSize[]).map(v => (
         <button key={v} className={`segment-btn ${value === v ? 'active' : ''}`}
+          onFocus={noScrollFocus}
           onClick={() => onChange(v)}>
           {v === 'sm' ? 'Small' : v === 'md' ? 'Medium' : 'Large'}
         </button>
@@ -91,6 +107,7 @@ export const StyleSettings: React.FC<Props> = ({ config, onChange }) => {
         <div className="segment-control">
           {(['400', '500', '600', '700'] as const).map(v => (
             <button key={v} className={`segment-btn ${t.labelFontWeight === v ? 'active' : ''}`}
+              onFocus={noScrollFocus}
               onClick={() => ST({ labelFontWeight: v })}>
               {v === '400' ? 'Regular' : v === '500' ? 'Medium' : v === '600' ? 'Semi' : 'Bold'}
             </button>

@@ -1,6 +1,7 @@
 import React from 'react'
 import {
   FieldConfig, INPUT_TYPE_OPTIONS, AUTOCOMPLETE_OPTIONS,
+  DATE_FORMAT_OPTIONS, DateFormat, DateMode,
   inferInputMode, inferAutoComplete
 } from '../lib/types'
 
@@ -12,6 +13,7 @@ export const FieldEditor: React.FC<Props> = ({ field, onChange }) => {
   const set = (p: Partial<FieldConfig>) => onChange({ ...field, ...p })
   const needsOptions = field.type === 'select' || field.type === 'radio' || field.type === 'checkbox'
   const hasPlaceholder = !['checkbox', 'radio', 'hidden', 'date', 'toggle'].includes(field.type)
+  const isDate = field.type === 'date'
 
   return (
     <div className="field-editor">
@@ -88,6 +90,41 @@ export const FieldEditor: React.FC<Props> = ({ field, onChange }) => {
         </div>
       </div>
 
+      {/* ── Date-specific options ── */}
+      {isDate && (
+        <>
+          <div className="editor-section-label">Date Settings</div>
+
+          <div className="prop-row">
+            <div className="prop-label-wrap">
+              <span className="prop-label">Selection Mode</span>
+              <span className="prop-hint">Single date or a start/end range</span>
+            </div>
+            <div className="segment-control">
+              {(['single', 'range'] as DateMode[]).map(v => (
+                <button key={v} className={`segment-btn ${(field.dateMode ?? 'single') === v ? 'active' : ''}`}
+                  onClick={() => set({ dateMode: v })}>
+                  {v === 'single' ? 'Single' : 'Range'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="prop-row">
+            <div className="prop-label-wrap">
+              <span className="prop-label">Date Format</span>
+              <span className="prop-hint">Display format for the placeholder</span>
+            </div>
+            <select className="prop-select" value={field.dateFormat ?? 'DD/MM/YYYY'}
+              onChange={e => set({ dateFormat: e.target.value as DateFormat })}>
+              {DATE_FORMAT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+
       <div className="editor-section-label">Advanced</div>
 
       <div className="prop-row">
@@ -101,13 +138,15 @@ export const FieldEditor: React.FC<Props> = ({ field, onChange }) => {
         </select>
       </div>
 
-      <div className="prop-row">
-        <div className="prop-label-wrap"><span className="prop-label">Auto Complete</span></div>
-        <select className="prop-select" value={field.autoComplete}
-          onChange={e => set({ autoComplete: e.target.value as any })}>
-          {AUTOCOMPLETE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
+      {!isDate && (
+        <div className="prop-row">
+          <div className="prop-label-wrap"><span className="prop-label">Auto Complete</span></div>
+          <select className="prop-select" value={field.autoComplete}
+            onChange={e => set({ autoComplete: e.target.value as any })}>
+            {AUTOCOMPLETE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
 
       {needsOptions && (
         <>
