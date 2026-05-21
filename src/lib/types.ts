@@ -7,6 +7,7 @@ export type InputType =
 export type LabelVariant = 'visible' | 'hidden' | 'floating'
 export type PaddingSize = 'sm' | 'md' | 'lg'
 export type DateMode = 'single' | 'range'
+export type CheckboxMode = 'single' | 'group'
 export type DateFormat = 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
 
 export type AutocompleteValue =
@@ -88,6 +89,8 @@ export interface FieldConfig {
   // Date-specific
   dateMode?: DateMode
   dateFormat?: DateFormat
+  // Checkbox-specific
+  checkboxMode?: CheckboxMode
 }
 
 // ─── Row (multi-column) ───────────────────────────────────────────────────────
@@ -169,8 +172,7 @@ export const FIELD_PRESETS: { label: string; icon: string; config: Partial<Field
   { label: 'Website', icon: '🌐', config: { label: 'Website', fieldName: 'website', placeholder: 'https://', type: 'url', autoComplete: 'off', inputMode: 'url' } },
   { label: 'Date', icon: '📅', config: { label: 'Date', fieldName: 'date', placeholder: '', type: 'date', autoComplete: 'off', inputMode: 'text', dateMode: 'single', dateFormat: 'DD/MM/YYYY' } },
   { label: 'Dropdown', icon: '▾', config: { label: 'Option', fieldName: 'option', placeholder: 'Select…', type: 'select', autoComplete: 'off', inputMode: 'text', options: [{ label: 'Option 1', value: 'option_1' }, { label: 'Option 2', value: 'option_2' }] } },
-  { label: 'Checkbox', icon: '☑', config: { label: 'I agree', fieldName: 'agree', placeholder: '', type: 'checkbox', autoComplete: 'off', inputMode: 'text', options: [{ label: 'I agree to the terms', value: 'agree' }] } },
-  { label: 'Radio', icon: '◉', config: { label: 'Choose one', fieldName: 'choice', placeholder: '', type: 'radio', autoComplete: 'off', inputMode: 'text', options: [{ label: 'Option A', value: 'a' }, { label: 'Option B', value: 'b' }] } },
+  { label: 'Checkbox', icon: '☑', config: { label: 'I agree', fieldName: 'agree', placeholder: '', type: 'checkbox', autoComplete: 'off', inputMode: 'text', checkboxMode: 'single', options: [{ label: 'I agree to the terms', value: 'agree' }] } },  { label: 'Radio', icon: '◉', config: { label: 'Choose one', fieldName: 'choice', placeholder: '', type: 'radio', autoComplete: 'off', inputMode: 'text', options: [{ label: 'Option A', value: 'a' }, { label: 'Option B', value: 'b' }] } },
   { label: 'Toggle', icon: '⏻', config: { label: 'Toggle', fieldName: 'toggle', placeholder: '', type: 'toggle', autoComplete: 'off', inputMode: 'text' } },
   { label: 'Hidden', icon: '👁', config: { label: 'Hidden Field', fieldName: 'hidden_field', placeholder: '', type: 'hidden', autoComplete: 'off', inputMode: 'text' } },
 ]
@@ -187,6 +189,7 @@ export const createField = (preset: Partial<FieldConfig>): FieldConfig => {
     options: [],
     dateMode: 'single',
     dateFormat: 'DD/MM/YYYY',
+    checkboxMode: 'single',
     ...rest,
   }
 }
